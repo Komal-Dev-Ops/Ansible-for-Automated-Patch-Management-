@@ -1,0 +1,47 @@
+---
+- name: Automated Patch Management
+  hosts: all
+  become: yes  # Run tasks as a superuser
+  vars:
+    reboot_required: false  # Track if reboot is needed
+  tasks:
+
+    - name: Ensure the package manager cache is updated
+      ansible.builtin.command:
+        cmd: "{{ 'apt-get update' if ansible_os_family == 'Debian' else 'yum makecache' }}"
+      when: ansible_os_family in ['Debian', 'RedHat']
+
+    - name: Apply security updates
+      ansible.builtin.package:
+        name: "*"
+        state: latest
+      register: package_result
+      when: ansible_os_family in ['Debian', 'RedHat']
+
+    - name: Check if a reboot is required (Debian-based systems)
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_file
+      when: ansible_os_family == 'Debian'
+
+    - name: Set reboot flag for Debian systems
+      set_fact:
+        reboot_required: true
+      when: reboot_file.stat.exists
+
+    - name: Set reboot flag for RedHat systems
+      set_fact:
+        reboot_required: true
+      when: "'kernel' in package_result.changed_packages"
+
+    - name: Reboot the server if required
+      ansible.builtin.reboot:
+        msg: "Rebooting after patch updates"
+        connect_timeout: 5
+        reboot_timeout: 300
+      when: reboot_required
+
+    - name: Verify system uptime post-reboot
+      ansible.builtin.command:
+        cmd: uptime
+
